@@ -1,15 +1,10 @@
 #!/usr/bin/env python3
 """Seed default admin developer account if it doesn't exist."""
 
-import argparse
-import os
-
+from app.config import settings
 from app.database import SessionLocal
 from app.schemas.developer import DeveloperCreate
 from app.services import developer_service
-
-DEFAULT_EMAIL = "admin@admin.com"
-DEFAULT_PASSWORD = "secret123"
 
 
 def seed_admin(email: str, password: str) -> None:
@@ -31,16 +26,4 @@ def seed_admin(email: str, password: str) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Seed default admin developer account.")
-    parser.add_argument(
-        "--email",
-        default=os.environ.get("ADMIN_EMAIL", DEFAULT_EMAIL),
-        help="Admin email (default: ADMIN_EMAIL env var or admin@admin.com)",
-    )
-    parser.add_argument(
-        "--password",
-        default=os.environ.get("ADMIN_PASSWORD", DEFAULT_PASSWORD),
-        help="Admin password (default: ADMIN_PASSWORD env var or secret123)",
-    )
-    args = parser.parse_args()
-    seed_admin(args.email, args.password)
+    seed_admin(settings.admin_email, settings.admin_password)
