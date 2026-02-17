@@ -10,14 +10,7 @@ from app.services import developer_service
 def seed_admin(email: str, password: str) -> None:
     """Create default admin developer if it doesn't exist."""
     with SessionLocal() as db:
-        existing = developer_service.crud.get_all(
-            db,
-            filters={},
-            offset=0,
-            limit=1,
-            sort_by=None,
-        )
-        if existing:
+        if developer_service.crud.exists_any(db):
             print("A developer account already exists, skipping admin seed.")
             return
 
