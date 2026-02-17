@@ -3,7 +3,7 @@
 
 <div align="left">
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/aAhON7?utm_medium=integration&utm_source=template&utm_campaign=generic)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/open-wearables-1?utm_medium=integration&utm_source=template&utm_campaign=generic)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-blue.svg)](https://github.com/the-momentum/open-wearables/issues)
