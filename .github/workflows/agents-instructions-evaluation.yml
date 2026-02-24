@@ -103,18 +103,16 @@ jobs:
             exit 0
           fi
 
-          # Find Claude's comment containing the summary table
-          COMMENT_BODY=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
-            --jq '.[] | select(.body | contains("AGENTS.md Review Summary")) | .body' \
-            | tail -1)
+          # Find the last Claude comment containing the summary table
+          # Use jq to select the last matching comment (tail -1 would only get last line)
+          gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+            --jq '[.[] | select(.body | contains("AGENTS.md Review Summary"))] | last | .body' \
+            > /tmp/claude_comment.md
 
-          if [ -z "$COMMENT_BODY" ]; then
+          if [ ! -s /tmp/claude_comment.md ] || grep -q '^null$' /tmp/claude_comment.md; then
             echo "No summary comment found, skipping tracking update"
             exit 0
           fi
-
-          # Write data to temp files to avoid shell quoting issues
-          echo "$COMMENT_BODY" > /tmp/claude_comment.md
           gh issue view "$ISSUE_NUMBER" --json body -q '.body' > /tmp/current_body.md
 
           python3 << 'PYEOF'
