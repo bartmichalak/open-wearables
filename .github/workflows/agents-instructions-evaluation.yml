@@ -224,3 +224,11 @@ jobs:
         run: |
           gh issue edit "${{ vars.COMPLIANCE_ISSUE_NUMBER }}" \
             --body-file /tmp/issue_body.md
+
+      - name: Comment on PR with tracking link
+        if: steps.build_body.outputs.has_body == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr comment "$PR_NUMBER" --body \
+            "📊 Compliance tracking updated in #${{ vars.COMPLIANCE_ISSUE_NUMBER }}."
