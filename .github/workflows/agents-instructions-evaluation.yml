@@ -63,11 +63,16 @@ jobs:
             - Each comment: cite the rule/pattern from AGENTS.md + suggested fix.
             - Be concise.
 
-            ### Step 2: Summary comment
-            After all inline comments, post ONE summary comment on the PR using
-            `gh pr comment`. The comment MUST follow this EXACT format:
+            ### Step 2: Summary in your main comment
+            After all inline comments, include a summary section at the END of
+            your main comment (the one you update via
+            mcp__github_comment__update_claude_comment). Do NOT use `gh pr comment`
+            for this — put it directly in your comment body.
 
-            ```
+            The summary section MUST contain BOTH of the following:
+
+            A) A visible markdown table:
+
             ## AGENTS.md Review Summary
 
             | Area | Rule | Violations |
@@ -76,20 +81,26 @@ jobs:
 
             **Total: <total> violations**
 
-            <!-- AGENTS_REVIEW_SUMMARY {"pr":<pr_number>,"violations":{"<area>/<rule_snake_case>":<n>,...}} -->
-            ```
+            B) A hidden HTML tracking tag on its OWN line, right after the
+            summary table. This tag is CRITICAL for automated tracking and
+            MUST be present exactly as shown:
 
+            <!-- AGENTS_REVIEW_SUMMARY {"pr":<pr_number>,"violations":{"<area>/<rule_snake_case>":<n>,...}} -->
+
+            Rules for the summary:
             - `<area>` is `backend` or `frontend`.
             - `<rule_snake_case>` is a short snake_case identifier you derive from
               the AGENTS.md rule (e.g. `layer_separation`, `missing_type_hints`,
               `hardcoded_routes`). Use consistent names across reviews.
             - Only include rows with count > 0. If no violations, set Total to 0.
             - The hidden HTML comment with JSON is REQUIRED for automated tracking.
+              Without it, the tracking system cannot update the compliance report.
+            - Do NOT wrap the HTML comment in a code block — it must be raw HTML.
 
           claude_args: |
             --model claude-sonnet-4-20250514
             --max-turns 30
-            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Read"
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Bash(gh pr view:*),Read"
 
       - name: Update compliance tracking issue
         if: always()
