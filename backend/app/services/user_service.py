@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime  # noqa: F401
 from logging import Logger, getLogger
 from typing import TYPE_CHECKING
 from uuid import UUID
