@@ -1,15 +1,20 @@
+from __future__ import annotations
+
 from datetime import datetime
 from logging import Logger, getLogger
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from app.database import DbSession
 from app.models import User
 from app.repositories.user_repository import UserRepository
-from app.schemas import UserCreate, UserCreateInternal, UserUpdate, UserUpdateInternal
-from app.schemas.common import PaginatedResponse
-from app.schemas.user import UserQueryParams, UserRead
 from app.services.services import AppService
 from app.utils.exceptions import handle_exceptions
+
+if TYPE_CHECKING:
+    from app.schemas import UserCreate, UserCreateInternal, UserUpdate, UserUpdateInternal
+    from app.schemas.common import PaginatedResponse
+    from app.schemas.user import UserQueryParams, UserRead
 
 
 class UserService(AppService[UserRepository, User, UserCreateInternal, UserUpdateInternal]):
@@ -27,6 +32,8 @@ class UserService(AppService[UserRepository, User, UserCreateInternal, UserUpdat
 
     def create(self, db_session: DbSession, creator: UserCreate) -> User:
         """Create a user with server-generated id and created_at."""
+        from app.schemas import UserCreateInternal
+
         creation_data = creator.model_dump()
         internal_creator = UserCreateInternal(**creation_data)
         return super().create(db_session, internal_creator)
@@ -39,6 +46,8 @@ class UserService(AppService[UserRepository, User, UserCreateInternal, UserUpdat
         raise_404: bool = False,
     ) -> User | None:
         """Update a user, setting updated_at automatically."""
+        from app.schemas import UserUpdateInternal
+
         user = self.get(db_session, object_id, raise_404=raise_404)
         if not user:
             return None
@@ -62,6 +71,9 @@ class UserService(AppService[UserRepository, User, UserCreateInternal, UserUpdat
         Returns:
             A paginated response containing the users and the total count of users.
         """
+        from app.schemas.common import PaginatedResponse
+        from app.schemas.user import UserQueryParams, UserRead
+
         self.logger.debug(f"Fetching users with pagination: page={query_params.page}, limit={query_params.limit}")
 
         users, total_count = self.crud.get_users_with_filters(db_session, query_params)
