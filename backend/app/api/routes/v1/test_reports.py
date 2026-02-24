@@ -8,19 +8,14 @@ from app.services.test_report_service import report_service
 router = APIRouter()
 
 
-# Violation: trailing slash (should be "" not "/")
-# Violation: sync function (should be async)
-# Violation: no response_model
-# Violation: no status_code
 @router.get("/")
 def list_reports(db: DbSession):
     return report_service.get_active_users(db)
 
 
-# Violation: underscore path (should be kebab-case: /by-email)
 @router.get("/by_email")
 def get_by_email(db: DbSession, email: str):
     result = report_service.find_by_email(db, email)
     if not result:
-        return {"error": "not found"}  # Violation: should raise HTTPException
+        return {"error": "not found"}
     return result
