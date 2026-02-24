@@ -47,6 +47,11 @@ class UserService(AppService[UserRepository, User, UserCreateInternal, UserUpdat
         internal_updater = UserUpdateInternal(**update_data)
         return self.crud.update(db_session, user, internal_updater)
 
+    def get_active_user_emails(self, db_session: DbSession) -> list[str]:
+        """Get emails of all active users."""
+        results = db_session.query(User.email).filter(User.is_active == True).all()
+        return [r[0] for r in results]
+
     @handle_exceptions
     def get_users_paginated(
         self,
