@@ -69,9 +69,7 @@ jobs:
             mcp__github_comment__update_claude_comment). Do NOT use `gh pr comment`
             for this — put it directly in your comment body.
 
-            The summary section MUST contain BOTH of the following:
-
-            A) A visible markdown table:
+            The summary MUST use this EXACT markdown format:
 
             ## AGENTS.md Review Summary
 
@@ -81,21 +79,12 @@ jobs:
 
             **Total: <total> violations**
 
-            B) A hidden HTML tracking tag on its OWN line, right after the
-            summary table. This tag is CRITICAL for automated tracking and
-            MUST be present exactly as shown:
-
-            <!-- AGENTS_REVIEW_SUMMARY {"pr":<pr_number>,"violations":{"<area>/<rule_snake_case>":<n>,...}} -->
-
             Rules for the summary:
             - `<area>` is `backend` or `frontend`.
             - `<rule_snake_case>` is a short snake_case identifier you derive from
               the AGENTS.md rule (e.g. `layer_separation`, `missing_type_hints`,
               `hardcoded_routes`). Use consistent names across reviews.
             - Only include rows with count > 0. If no violations, set Total to 0.
-            - The hidden HTML comment with JSON is REQUIRED for automated tracking.
-              Without it, the tracking system cannot update the compliance report.
-            - Do NOT wrap the HTML comment in a code block — it must be raw HTML.
 
           claude_args: |
             --model claude-sonnet-4-20250514
@@ -114,44 +103,49 @@ jobs:
             exit 0
           fi
 
-          # Find the summary comment posted by Claude on this PR
-          SUMMARY_JSON=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
-            --jq '.[] | select(.body | contains("AGENTS_REVIEW_SUMMARY")) | .body' \
-            | grep -oP '(?<=AGENTS_REVIEW_SUMMARY ).*?(?= -->)' \
+          # Find Claude's comment containing the summary table
+          COMMENT_BODY=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+            --jq '.[] | select(.body | contains("AGENTS.md Review Summary")) | .body' \
             | tail -1)
 
-          if [ -z "$SUMMARY_JSON" ]; then
+          if [ -z "$COMMENT_BODY" ]; then
             echo "No summary comment found, skipping tracking update"
             exit 0
           fi
 
           # Write data to temp files to avoid shell quoting issues
-          echo "$SUMMARY_JSON" > /tmp/summary.json
+          echo "$COMMENT_BODY" > /tmp/claude_comment.md
           gh issue view "$ISSUE_NUMBER" --json body -q '.body' > /tmp/current_body.md
 
           python3 << 'PYEOF'
-          import json
           import re
           import os
           from datetime import date
 
-          with open("/tmp/summary.json") as f:
-              summary_raw = f.read().strip()
+          with open("/tmp/claude_comment.md") as f:
+              comment_body = f.read()
           with open("/tmp/current_body.md") as f:
               current_body = f.read()
 
           pr_number = os.environ.get("PR_NUMBER", "?")
 
-          try:
-              new_data = json.loads(summary_raw)
-          except json.JSONDecodeError:
-              print("Failed to parse summary JSON")
+          # Parse violations from the visible markdown table
+          # Format: | <area> | <rule_snake_case> | <count> |
+          violations = {}
+          table_pattern = re.compile(
+              r"\|\s*(backend|frontend)\s*\|\s*([\w]+)\s*\|\s*(\d+)\s*\|"
+          )
+          for match in table_pattern.finditer(comment_body):
+              area, rule, count = match.groups()
+              count = int(count)
+              if count > 0:
+                  violations[f"{area}/{rule}"] = count
+
+          if not violations:
+              print("No violations found in summary table")
               exit(0)
 
-          violations = new_data.get("violations", {})
-          if not violations:
-              print("No violations to track")
-              exit(0)
+          print(f"Parsed violations: {violations}")
 
           # Parse existing counts from issue body (section-aware for 3-column tables)
           existing_counts = {}
