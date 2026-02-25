@@ -65,10 +65,8 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          CONTEXT=$(cat /tmp/review_context.md)
-
-          # Build the prompt with context inlined
-          PROMPT=$(cat << 'PROMPT_EOF'
+          # Write prompt to file (avoids heredoc-in-subshell issues)
+          cat > /tmp/prompt.txt << 'PROMPT_EOF'
           You are a code review assistant for the Open Wearables project.
           Review the PR diff against the AGENTS.md guidelines provided below.
 
@@ -98,20 +96,14 @@ jobs:
           (e.g. layer_separation, missing_type_hints, hardcoded_routes).
           PROMPT_EOF
 
-          # Combine prompt + context into a single user message
-          USER_MESSAGE="${PROMPT}
-
-          ---
-
-          ${CONTEXT}"
-
-          # Single API call to Claude
+          # Combine prompt + context, build API request via jq (handles escaping)
           jq -n \
-            --arg content "$USER_MESSAGE" \
+            --rawfile prompt /tmp/prompt.txt \
+            --rawfile context /tmp/review_context.md \
             '{
               model: "claude-sonnet-4-20250514",
               max_tokens: 4096,
-              messages: [{role: "user", content: $content}]
+              messages: [{role: "user", content: ($prompt + "\n---\n" + $context)}]
             }' > /tmp/api_request.json
 
           HTTP_STATUS=$(curl -s -w "%{http_code}" -o /tmp/api_response.json \
