@@ -137,6 +137,18 @@ class RefreshTokenService:
             expires_in=settings.access_token_expire_minutes * 60,
         )
 
+    def revoke_all_for_user(self, db_session: DbSession, user_id: UUID) -> int:
+        """Revoke all refresh tokens for a user."""
+        from sqlalchemy import update
+
+        result = db_session.execute(
+            update(RefreshToken)
+            .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
+            .values(revoked_at=datetime.now(timezone.utc))
+        )
+        db_session.flush()
+        return result.rowcount
+
     def revoke_token(self, db_session: DbSession, refresh_token_str: str) -> bool:
         """Revoke a refresh token.
 
