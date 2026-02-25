@@ -1,4 +1,5 @@
 from app.database import DbSession
+from app.models import ProviderSetting
 from app.repositories.provider_settings_repository import ProviderSettingsRepository
 from app.schemas import ProviderName, ProviderSettingRead, ProviderSettingUpdate
 from app.services.providers.factory import ProviderFactory
@@ -10,6 +11,11 @@ class ProviderSettingsService:
     def __init__(self):
         self.factory = ProviderFactory()
         self.repo = ProviderSettingsRepository()
+
+    def get_enabled_providers(self, db: DbSession) -> list[str]:
+        """Get list of enabled provider names."""
+        rows = db.query(ProviderSetting.provider).filter(ProviderSetting.is_enabled == True).all()
+        return [r[0] for r in rows]
 
     def get_all_providers(self, db: DbSession) -> list[ProviderSettingRead]:
         """
