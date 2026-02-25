@@ -27,7 +27,6 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
-      id-token: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -61,69 +60,142 @@ jobs:
             fi
           } > /tmp/review_context.md
 
-      - name: Review PR against AGENTS.md guidelines
-        uses: anthropics/claude-code-action@v1
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          track_progress: true
-          prompt: |
-            You are a code review assistant. All context is in /tmp/review_context.md.
-            It contains the PR diff and the relevant AGENTS.md guidelines. Read it first.
+      - name: Call Claude API
+        id: claude
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          CONTEXT=$(cat /tmp/review_context.md)
 
-            ## Rules
-            - Only flag violations of rules documented in AGENTS.md. Do NOT invent rules.
-            - Only review changed lines.
-            - Skip issues caught by linters (ruff, oxlint, prettier).
-            - Max 10 inline comments. Be concise.
+          # Build the prompt with context inlined
+          PROMPT=$(cat << 'PROMPT_EOF'
+          You are a code review assistant for the Open Wearables project.
+          Review the PR diff against the AGENTS.md guidelines provided below.
 
-            ## Step 1: Post inline comments via PR Review API
+          Rules:
+          - Only flag violations of rules documented in AGENTS.md. Do NOT invent rules.
+          - Only review changed lines (lines starting with + in the diff).
+          - Skip issues caught by linters (ruff, oxlint, prettier).
+          - Max 10 violations.
+          - Be concise.
 
-            Post ALL inline comments in a single GitHub review API call.
+          Respond with ONLY valid JSON, no markdown fences, no explanation. Use this exact schema:
+          {
+            "violations": [
+              {
+                "path": "relative/path/to/file.py",
+                "line": <line_number_in_new_file>,
+                "rule": "<snake_case_rule_id>",
+                "area": "backend|frontend",
+                "comment": "<short explanation + suggested fix>"
+              }
+            ]
+          }
 
-            1. Use the Write tool to create /tmp/review_payload.json:
-            ```json
-            {
-              "event": "COMMENT",
-              "body": "AGENTS.md compliance review complete.",
-              "comments": [
-                {
-                  "path": "relative/path/to/file.py",
-                  "line": <line_number_in_new_file>,
-                  "body": "**AGENTS.md violation** (`<rule>`): <explanation + fix>"
-                }
-              ]
-            }
-            ```
-            The `line` must be the line number in the NEW version of the file
-            (right side of the diff — lines starting with `+`).
-            If no violations, set `"comments": []`.
+          If no violations, return: {"violations": []}
+          The "line" must be the line number in the NEW version of the file.
+          The "rule" must be a short snake_case id derived from the AGENTS.md rule
+          (e.g. layer_separation, missing_type_hints, hardcoded_routes).
+          PROMPT_EOF
 
-            2. Then post the review with:
-            ```
-            gh api repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews \
-              --method POST --input /tmp/review_payload.json
-            ```
+          # Combine prompt + context into a single user message
+          USER_MESSAGE="${PROMPT}
 
-            ## Step 2: Summary in your main comment
+          ---
 
-            Update your main comment with this EXACT markdown at the end:
+          ${CONTEXT}"
 
-            ## AGENTS.md Review Summary
+          # Single API call to Claude
+          jq -n \
+            --arg content "$USER_MESSAGE" \
+            '{
+              model: "claude-sonnet-4-20250514",
+              max_tokens: 4096,
+              messages: [{role: "user", content: $content}]
+            }' > /tmp/api_request.json
 
-            | Area | Rule | Violations |
-            |------|------|------------|
-            | <area> | <rule_snake_case> | <count> |
+          HTTP_STATUS=$(curl -s -w "%{http_code}" -o /tmp/api_response.json \
+            https://api.anthropic.com/v1/messages \
+            -H "content-type: application/json" \
+            -H "x-api-key: ${ANTHROPIC_API_KEY}" \
+            -H "anthropic-version: 2023-06-01" \
+            -d @/tmp/api_request.json)
 
-            **Total: <total> violations**
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "Claude API returned HTTP $HTTP_STATUS"
+            cat /tmp/api_response.json
+            exit 1
+          fi
 
-            - `<area>` is `backend` or `frontend`.
-            - `<rule_snake_case>`: short snake_case id (e.g. `layer_separation`).
-            - Only rows with count > 0. If no violations, set Total to 0.
+          # Extract the text content from Claude's response
+          jq -r '.content[0].text' /tmp/api_response.json > /tmp/violations.json
 
-          claude_args: |
-            --model claude-sonnet-4-20250514
-            --max-turns 10
-            --allowedTools "Bash(gh api:*),Read,Write"
+          echo "Claude response:"
+          cat /tmp/violations.json
+
+      - name: Post review comments
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VIOLATION_COUNT=$(jq '.violations | length' /tmp/violations.json)
+          echo "Found $VIOLATION_COUNT violations"
+
+          if [ "$VIOLATION_COUNT" -eq 0 ]; then
+            echo "has_violations=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "has_violations=true" >> "$GITHUB_OUTPUT"
+
+          # Build PR review payload with inline comments
+          jq '{
+            event: "COMMENT",
+            body: "AGENTS.md compliance review complete.",
+            comments: [.violations[] | {
+              path: .path,
+              line: .line,
+              body: ("**AGENTS.md violation** (`" + .rule + "`): " + .comment)
+            }]
+          }' /tmp/violations.json > /tmp/review_payload.json
+
+          gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews" \
+            --method POST \
+            --input /tmp/review_payload.json
+
+      - name: Post summary comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Build the summary table from violations JSON
+          SUMMARY=$(python3 << 'PYEOF'
+          import json
+
+          with open("/tmp/violations.json") as f:
+              data = json.load(f)
+
+          violations = data.get("violations", [])
+
+          # Aggregate by area + rule
+          counts = {}
+          for v in violations:
+              key = (v["area"], v["rule"])
+              counts[key] = counts.get(key, 0) + 1
+
+          total = sum(counts.values())
+
+          lines = ["## AGENTS.md Review Summary", ""]
+          lines.append("| Area | Rule | Violations |")
+          lines.append("|------|------|------------|")
+          if counts:
+              for (area, rule), count in sorted(counts.items()):
+                  lines.append(f"| {area} | {rule} | {count} |")
+          lines.append("")
+          lines.append(f"**Total: {total} violations**")
+
+          print("\n".join(lines))
+          PYEOF
+          )
+
+          gh pr comment "$PR_NUMBER" --body "$SUMMARY"
 
       - name: Update compliance tracking issue
         if: always()
@@ -137,8 +209,7 @@ jobs:
             exit 0
           fi
 
-          # Find the last Claude comment containing the summary table
-          # Use jq to select the last matching comment (tail -1 would only get last line)
+          # Use the summary comment we just posted (search PR comments)
           gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
             --jq '[.[] | select(.body | contains("AGENTS.md Review Summary"))] | last | .body' \
             > /tmp/claude_comment.md
