@@ -96,6 +96,10 @@ jobs:
           (e.g. layer_separation, missing_type_hints, hardcoded_routes).
           PROMPT_EOF
 
+          # Debug: check file sizes
+          echo "Prompt size: $(wc -c < /tmp/prompt.txt) bytes"
+          echo "Context size: $(wc -c < /tmp/review_context.md) bytes"
+
           # Combine prompt + context, build API request via jq (handles escaping)
           jq -n \
             --rawfile prompt /tmp/prompt.txt \
@@ -113,11 +117,17 @@ jobs:
             -H "anthropic-version: 2023-06-01" \
             -d @/tmp/api_request.json)
 
+          echo "Request size: $(wc -c < /tmp/api_request.json) bytes"
+
           if [ "$HTTP_STATUS" != "200" ]; then
             echo "Claude API returned HTTP $HTTP_STATUS"
             cat /tmp/api_response.json
             exit 1
           fi
+
+          # Debug: show token usage
+          echo "Token usage:"
+          jq '.usage' /tmp/api_response.json
 
           # Extract the text content from Claude's response
           jq -r '.content[0].text' /tmp/api_response.json > /tmp/violations.json
