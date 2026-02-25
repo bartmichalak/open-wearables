@@ -34,42 +34,79 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Prepare review context
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CHANGED_FILES=$(gh pr diff "$PR_NUMBER" --name-only)
+
+          {
+            echo "## PR Diff"
+            echo '```diff'
+            gh pr diff "$PR_NUMBER"
+            echo '```'
+            echo ""
+            echo "## Root AGENTS.md"
+            cat AGENTS.md
+            echo ""
+            if echo "$CHANGED_FILES" | grep -q "^backend/"; then
+              echo "## Backend AGENTS.md"
+              cat backend/AGENTS.md
+              echo ""
+            fi
+            if echo "$CHANGED_FILES" | grep -q "^frontend/"; then
+              echo "## Frontend AGENTS.md"
+              cat frontend/AGENTS.md
+              echo ""
+            fi
+          } > /tmp/review_context.md
+
       - name: Review PR against AGENTS.md guidelines
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           track_progress: true
           prompt: |
-            You are a code review assistant for the Open Wearables project.
-            Evaluate the PR diff against the coding guidelines in AGENTS.md files.
+            You are a code review assistant. All context is in /tmp/review_context.md.
+            It contains the PR diff and the relevant AGENTS.md guidelines. Read it first.
 
-            ## Instructions
+            ## Rules
+            - Only flag violations of rules documented in AGENTS.md. Do NOT invent rules.
+            - Only review changed lines.
+            - Skip issues caught by linters (ruff, oxlint, prettier).
+            - Max 10 inline comments. Be concise.
 
-            1. Read the PR diff: `gh pr diff ${{ env.PR_NUMBER }}`.
-            2. Read `AGENTS.md` (root) for general project guidelines.
-            3. Determine which areas are affected by the diff:
-               - If `backend/` files changed, read `backend/AGENTS.md` in full.
-               - If `frontend/` files changed, read `frontend/AGENTS.md` in full.
-            4. Use the rules, patterns, and examples from those AGENTS.md files
-               as the sole source of truth for your review. Do NOT invent rules
-               beyond what is documented there.
-            5. Only review changed files and changed lines.
-            6. Skip issues that are already caught by linters (ruff, oxlint, prettier).
+            ## Step 1: Post inline comments via PR Review API
 
-            ## Output
+            Post ALL inline comments in a single GitHub review API call.
 
-            ### Step 1: Inline comments
-            - Post inline comments on specific violations (max 10).
-            - Each comment: cite the rule/pattern from AGENTS.md + suggested fix.
-            - Be concise.
+            1. Use the Write tool to create /tmp/review_payload.json:
+            ```json
+            {
+              "event": "COMMENT",
+              "body": "AGENTS.md compliance review complete.",
+              "comments": [
+                {
+                  "path": "relative/path/to/file.py",
+                  "line": <line_number_in_new_file>,
+                  "body": "**AGENTS.md violation** (`<rule>`): <explanation + fix>"
+                }
+              ]
+            }
+            ```
+            The `line` must be the line number in the NEW version of the file
+            (right side of the diff — lines starting with `+`).
+            If no violations, set `"comments": []`.
 
-            ### Step 2: Summary in your main comment
-            After all inline comments, include a summary section at the END of
-            your main comment (the one you update via
-            mcp__github_comment__update_claude_comment). Do NOT use `gh pr comment`
-            for this — put it directly in your comment body.
+            2. Then post the review with:
+            ```
+            gh api repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews \
+              --method POST --input /tmp/review_payload.json
+            ```
 
-            The summary MUST use this EXACT markdown format:
+            ## Step 2: Summary in your main comment
+
+            Update your main comment with this EXACT markdown at the end:
 
             ## AGENTS.md Review Summary
 
@@ -79,17 +116,14 @@ jobs:
 
             **Total: <total> violations**
 
-            Rules for the summary:
             - `<area>` is `backend` or `frontend`.
-            - `<rule_snake_case>` is a short snake_case identifier you derive from
-              the AGENTS.md rule (e.g. `layer_separation`, `missing_type_hints`,
-              `hardcoded_routes`). Use consistent names across reviews.
-            - Only include rows with count > 0. If no violations, set Total to 0.
+            - `<rule_snake_case>`: short snake_case id (e.g. `layer_separation`).
+            - Only rows with count > 0. If no violations, set Total to 0.
 
           claude_args: |
             --model claude-sonnet-4-20250514
-            --max-turns 30
-            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Bash(gh pr view:*),Read"
+            --max-turns 10
+            --allowedTools "Bash(gh api:*),Read,Write"
 
       - name: Update compliance tracking issue
         if: always()
