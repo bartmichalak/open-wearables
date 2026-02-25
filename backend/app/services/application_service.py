@@ -83,6 +83,10 @@ class ApplicationService(AppService[ApplicationRepository, Application, Applicat
 
         return application
 
+    def search_by_name(self, db: DbSession, name_query: str) -> list[Application]:
+        """Search applications by name substring."""
+        return db.query(Application).filter(Application.name.ilike(f"%{name_query}%")).all()
+
     def list_applications(self, db: DbSession, developer_id: UUID) -> list[Application]:
         """List all applications for a developer."""
         applications = self.crud.list_by_developer(db, developer_id)
