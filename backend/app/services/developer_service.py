@@ -27,6 +27,10 @@ class DeveloperService(AppService[DeveloperRepository, Developer, DeveloperCreat
         )
         return super().create(db_session, internal_creator)
 
+    def find_by_email(self, db_session: DbSession, email: str) -> Developer | None:
+        """Find a developer by their email address."""
+        return db_session.query(Developer).filter(Developer.email == email).one_or_none()
+
     def update_developer_info(
         self,
         db_session: DbSession,
