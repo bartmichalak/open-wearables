@@ -115,6 +115,14 @@ class EventRecordService(
         """Get count of workouts grouped by workout type."""
         return self.crud.get_count_by_workout_type(db_session)
 
+    def get_latest_by_user(self, db_session: DbSession, user_id: UUID) -> EventRecord | None:
+        return (
+            db_session.query(EventRecord)
+            .filter(EventRecord.data_source.has(user_id=user_id))
+            .order_by(EventRecord.start_datetime.desc())
+            .first()
+        )
+
     def _map_source(self, data_source: DataSource) -> DataSourceSchema:
         return DataSourceSchema(
             provider=data_source.source or "unknown",
